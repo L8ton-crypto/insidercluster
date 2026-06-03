@@ -56,6 +56,8 @@ export async function computeClusters(): Promise<Cluster[]> {
     WHERE transaction_code = 'P'
       AND transaction_date >= CURRENT_DATE - INTERVAL '30 days'
       AND ticker IS NOT NULL
+      AND ticker NOT IN ('NA','N','NONE','TBD')
+      AND LENGTH(ticker) BETWEEN 1 AND 6
       AND total_value IS NOT NULL
       AND total_value > 0
     ORDER BY ticker, transaction_date
