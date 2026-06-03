@@ -15,6 +15,7 @@ export async function GET(req: Request) {
     await ensureDb();
     const url = new URL(req.url);
     const pages = Math.min(Number(url.searchParams.get("pages") || "3"), 20);
+    const startPage = Math.max(Number(url.searchParams.get("start_page") || "0"), 0);
     const days = Math.min(Number(url.searchParams.get("days") || "7"), 90);
     const sql = getSql();
 
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
     let inserted = 0;
     const errors: string[] = [];
 
-    for (let p = 0; p < pages; p++) {
+    for (let p = startPage; p < startPage + pages; p++) {
       let entries;
       try {
         entries = await searchFilings(startdt, enddt, p * 100, 100);
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
       scanned += entries.length;
 
       for (const e of entries) {
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 70));
         let parts;
         try {
           parts = await fetchAndParse(e);
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       window: { startdt, enddt },
+      page_range: { from: startPage * 100, to: (startPage + pages) * 100 },
       scanned_filings: scanned,
       parsed_p_transactions: parsed,
       inserted,
