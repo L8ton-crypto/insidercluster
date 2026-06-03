@@ -1,19 +1,27 @@
 import { NextResponse } from "next/server";
 import { ensureDb, getSql } from "@/lib/db";
-import { fetchAtom, fetchAndParse } from "@/lib/edgar";
+import { searchFilings, fetchAndParse } from "@/lib/edgar";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Pull recent Form 4 atom entries, parse code-P transactions, upsert.
-// Vercel cron hits this daily. Manual hits also allowed (idempotent).
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Pull recent Form 4 filings via the EDGAR full-text search JSON API.
+// Defaults: scan last 7 days, up to ~300 filings per run (3 pages of 100).
 export async function GET(req: Request) {
   try {
     await ensureDb();
     const url = new URL(req.url);
-    const pages = Math.min(Number(url.searchParams.get("pages") || "5"), 20);
+    const pages = Math.min(Number(url.searchParams.get("pages") || "3"), 20);
+    const days = Math.min(Number(url.searchParams.get("days") || "7"), 30);
     const sql = getSql();
+
+    const enddt = isoDate(new Date());
+    const startdt = isoDate(new Date(Date.now() - days * 86400000));
 
     let scanned = 0;
     let parsed = 0;
@@ -21,19 +29,18 @@ export async function GET(req: Request) {
     const errors: string[] = [];
 
     for (let p = 0; p < pages; p++) {
-      let entries: Array<{ accession: string; cik: string; indexUrl: string }> = [];
+      let entries: Array<{ accession: string; cik: string }> = [];
       try {
-        entries = await fetchAtom(p * 100, 100);
+        entries = await searchFilings(startdt, enddt, p * 100, 100);
       } catch (e: unknown) {
-        errors.push(`atom-${p}: ${(e as Error).message}`);
+        errors.push(`efts-${p}: ${(e as Error).message}`);
         break;
       }
       if (entries.length === 0) break;
       scanned += entries.length;
 
       for (const e of entries) {
-        // Light throttle, EDGAR fair-use.
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 110));
         let parts;
         try {
           parts = await fetchAndParse(e.accession, e.cik);
@@ -65,6 +72,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      window: { startdt, enddt },
       scanned_filings: scanned,
       parsed_p_transactions: parsed,
       inserted,
