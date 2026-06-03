@@ -87,7 +87,8 @@ export async function fetchAndParse(hit: EftsHit): Promise<ParsedFiling[]> {
   const issuerBlock = tagInner(xml, "issuer") || "";
   const issuer_name = tagInner(issuerBlock, "issuerName");
   const ticker_raw = tagInner(issuerBlock, "issuerTradingSymbol");
-  const ticker = ticker_raw ? ticker_raw.toUpperCase().replace(/[^A-Z0-9.\-]/g, "") : null;
+  let ticker = ticker_raw ? ticker_raw.toUpperCase().replace(/[^A-Z0-9.\-]/g, "") : null;
+  if (ticker && (ticker === "NA" || ticker === "N" || ticker === "NONE" || ticker.length < 1 || ticker.length > 6)) ticker = null;
   const issuer_cik_raw = tagInner(issuerBlock, "issuerCik");
   const issuer_cik = issuer_cik_raw ? issuer_cik_raw.replace(/^0+/, "") : hit.filerCik;
 
