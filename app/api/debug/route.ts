@@ -19,13 +19,14 @@ export async function GET(req: Request) {
     const out: Array<Record<string, unknown>> = [];
     for (const f of filings.slice(0, 3)) {
       const accNoDashes = f.accession.replace(/-/g, "");
-      const docUrl = `https://www.sec.gov/Archives/edgar/data/${f.cik}/${accNoDashes}/primary_doc.xml`;
+      const docUrl = `https://www.sec.gov/Archives/edgar/data/${f.filerCik}/${accNoDashes}/${f.filename}`;
       try {
         const res = await fetch(docUrl, { headers: { "User-Agent": UA }, cache: "no-store" });
         const txt = await res.text();
         out.push({
           accession: f.accession,
-          cik: f.cik,
+          filerCik: f.filerCik,
+          filename: f.filename,
           docUrl,
           status: res.status,
           length: txt.length,
