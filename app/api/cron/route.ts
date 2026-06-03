@@ -10,8 +10,6 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Pull recent Form 4 filings via the EDGAR full-text search JSON API.
-// Defaults: scan last 7 days, up to ~300 filings per run (3 pages of 100).
 export async function GET(req: Request) {
   try {
     await ensureDb();
@@ -29,7 +27,7 @@ export async function GET(req: Request) {
     const errors: string[] = [];
 
     for (let p = 0; p < pages; p++) {
-      let entries: Array<{ accession: string; cik: string }> = [];
+      let entries;
       try {
         entries = await searchFilings(startdt, enddt, p * 100, 100);
       } catch (e: unknown) {
@@ -40,10 +38,10 @@ export async function GET(req: Request) {
       scanned += entries.length;
 
       for (const e of entries) {
-        await new Promise(r => setTimeout(r, 110));
+        await new Promise(r => setTimeout(r, 80));
         let parts;
         try {
-          parts = await fetchAndParse(e.accession, e.cik);
+          parts = await fetchAndParse(e);
         } catch (err: unknown) {
           errors.push(`${e.accession}: ${(err as Error).message}`);
           continue;

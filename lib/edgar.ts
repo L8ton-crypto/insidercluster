@@ -1,9 +1,18 @@
-// SEC EDGAR Form 4 fetcher. Uses the EDGAR full-text search JSON API for filings,
-// then primary_doc.xml for each one. SEC requires a User-Agent header.
+// SEC EDGAR Form 4 fetcher.
+// EFTS full-text search returns hits whose _id is "accession:filename.xml"
+// and whose ciks array is [filer_cik, ...possibly_issuer_cik]. The S3 archive
+// stores the filing under the filer CIK (accession-number prefix matches).
+// We use the filename from _id rather than guessing primary_doc.xml.
 
 const UA = "InsiderCluster research@leightonrice.co.uk";
 const SEC_BASE = "https://www.sec.gov";
 const EFTS_BASE = "https://efts.sec.gov/LATEST/search-index";
+
+export type EftsHit = {
+  accession: string;
+  filename: string;
+  filerCik: string;
+};
 
 export type ParsedFiling = {
   filing_id: string;
@@ -39,35 +48,34 @@ function valueInside(xml: string): string | null {
   return tagInner(xml, "value");
 }
 
-// Page through EDGAR full-text search for Form 4 filings in a date range.
-// Returns up to count filings starting at offset `from`. Date format: YYYY-MM-DD.
-export async function searchFilings(startdt: string, enddt: string, from: number, count: number): Promise<Array<{ accession: string; cik: string }>> {
+export async function searchFilings(startdt: string, enddt: string, from: number, count: number): Promise<EftsHit[]> {
   const url = `${EFTS_BASE}?q=&forms=4&dateRange=custom&startdt=${startdt}&enddt=${enddt}&from=${from}`;
   const body = await fetchSec(url, "application/json");
-  let json: { hits?: { hits?: Array<{ _id?: string; _source?: { ciks?: string[] } }> } };
+  let json: { hits?: { hits?: Array<{ _id?: string; _source?: { ciks?: string[]; adsh?: string } }> } };
   try {
     json = JSON.parse(body);
   } catch {
     return [];
   }
   const hits = json?.hits?.hits || [];
-  const out: Array<{ accession: string; cik: string }> = [];
+  const out: EftsHit[] = [];
   for (const h of hits.slice(0, count)) {
     const id = h?._id || "";
-    // EFTS hit _id is sometimes "accession:primary-doc" - split on colon if present.
-    const accession = (id.split(":")[0] || "").trim();
+    const colon = id.indexOf(":");
+    if (colon < 0) continue;
+    const accession = id.slice(0, colon).trim();
+    const filename = id.slice(colon + 1).trim();
     const cikRaw = h?._source?.ciks?.[0] || "";
-    const cik = cikRaw.replace(/^0+/, "");
-    if (!accession || !cik) continue;
-    out.push({ accession, cik });
+    const filerCik = cikRaw.replace(/^0+/, "");
+    if (!accession || !filename || !filerCik) continue;
+    out.push({ accession, filename, filerCik });
   }
   return out;
 }
 
-// Fetch primary_doc.xml for a filing and parse out code-P open-market purchases.
-export async function fetchAndParse(accession: string, cik: string): Promise<ParsedFiling[]> {
-  const accNoDashes = accession.replace(/-/g, "");
-  const docUrl = `${SEC_BASE}/Archives/edgar/data/${cik}/${accNoDashes}/primary_doc.xml`;
+export async function fetchAndParse(hit: EftsHit): Promise<ParsedFiling[]> {
+  const accNoDashes = hit.accession.replace(/-/g, "");
+  const docUrl = `${SEC_BASE}/Archives/edgar/data/${hit.filerCik}/${accNoDashes}/${hit.filename}`;
   let xml: string;
   try {
     xml = await fetchSec(docUrl);
@@ -75,10 +83,13 @@ export async function fetchAndParse(accession: string, cik: string): Promise<Par
     return [];
   }
 
+  // The XML might be the ownership document directly, or wrapped in XSL. Try as-is.
   const issuerBlock = tagInner(xml, "issuer") || "";
   const issuer_name = tagInner(issuerBlock, "issuerName");
   const ticker_raw = tagInner(issuerBlock, "issuerTradingSymbol");
   const ticker = ticker_raw ? ticker_raw.toUpperCase().replace(/[^A-Z0-9.\-]/g, "") : null;
+  const issuer_cik_raw = tagInner(issuerBlock, "issuerCik");
+  const issuer_cik = issuer_cik_raw ? issuer_cik_raw.replace(/^0+/, "") : hit.filerCik;
 
   const ownerBlock = tagInner(xml, "reportingOwner") || "";
   const ownerIdBlock = tagInner(ownerBlock, "reportingOwnerId") || "";
@@ -98,7 +109,7 @@ export async function fetchAndParse(accession: string, cik: string): Promise<Par
   if (title) rels.push(title);
   const insider_relationship = rels.length ? rels.join(", ") : null;
 
-  const filing_url = `${SEC_BASE}/Archives/edgar/data/${cik}/${accNoDashes}/${accession}-index.htm`;
+  const filing_url = `${SEC_BASE}/Archives/edgar/data/${hit.filerCik}/${accNoDashes}/${hit.accession}-index.htm`;
 
   const ndTable = tagInner(xml, "nonDerivativeTable") || "";
   const txRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
@@ -130,10 +141,10 @@ export async function fetchAndParse(accession: string, cik: string): Promise<Par
     if (!shares || !price_per_share || !total_value) continue;
 
     out.push({
-      filing_id: `${accession}-${i++}`,
+      filing_id: `${hit.accession}-${i++}`,
       ticker,
       issuer_name,
-      cik,
+      cik: issuer_cik,
       insider_name,
       insider_relationship,
       transaction_date,
