@@ -38,6 +38,17 @@ async function fetchSec(url: string, accept = "*/*"): Promise<string> {
   return res.text();
 }
 
+
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 function tagInner(xml: string, tag: string): string | null {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const m = xml.match(re);
@@ -85,7 +96,7 @@ export async function fetchAndParse(hit: EftsHit): Promise<ParsedFiling[]> {
 
   // The XML might be the ownership document directly, or wrapped in XSL. Try as-is.
   const issuerBlock = tagInner(xml, "issuer") || "";
-  const issuer_name = tagInner(issuerBlock, "issuerName");
+  const issuer_name_raw0 = tagInner(issuerBlock, "issuerName"); const issuer_name = issuer_name_raw0 ? decodeXmlEntities(issuer_name_raw0) : null;
   const ticker_raw = tagInner(issuerBlock, "issuerTradingSymbol");
   let ticker = ticker_raw ? ticker_raw.toUpperCase().replace(/[^A-Z0-9.\-]/g, "") : null;
   if (ticker && (ticker === "NA" || ticker === "N" || ticker === "NONE" || ticker.length < 1 || ticker.length > 6)) ticker = null;
@@ -95,7 +106,7 @@ export async function fetchAndParse(hit: EftsHit): Promise<ParsedFiling[]> {
   const ownerBlock = tagInner(xml, "reportingOwner") || "";
   const ownerIdBlock = tagInner(ownerBlock, "reportingOwnerId") || "";
   const insider_name_raw = tagInner(ownerIdBlock, "rptOwnerName");
-  const insider_name = insider_name_raw ? insider_name_raw.toUpperCase() : null;
+  const insider_name = insider_name_raw ? decodeXmlEntities(insider_name_raw).toUpperCase() : null;
 
   const relBlock = tagInner(ownerBlock, "reportingOwnerRelationship") || "";
   const rels: string[] = [];
@@ -108,7 +119,7 @@ export async function fetchAndParse(hit: EftsHit): Promise<ParsedFiling[]> {
   if (isTrue(tagInner(relBlock, "isTenPercentOwner"))) rels.push("10% Owner");
   const title = tagInner(relBlock, "officerTitle");
   if (title) rels.push(title);
-  const insider_relationship = rels.length ? rels.join(", ") : null;
+  const insider_relationship = rels.length ? decodeXmlEntities(rels.join(", ")) : null;
 
   const filing_url = `${SEC_BASE}/Archives/edgar/data/${hit.filerCik}/${accNoDashes}/${hit.accession}-index.htm`;
 
