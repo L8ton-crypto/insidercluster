@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     await ensureDb();
     const url = new URL(req.url);
     const pages = Math.min(Number(url.searchParams.get("pages") || "3"), 20);
-    const days = Math.min(Number(url.searchParams.get("days") || "7"), 30);
+    const days = Math.min(Number(url.searchParams.get("days") || "7"), 90);
     const sql = getSql();
 
     const enddt = isoDate(new Date());
